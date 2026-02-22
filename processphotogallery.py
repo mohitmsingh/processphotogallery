@@ -284,12 +284,16 @@ def review_visual_duplicates():
             continue
         selected_action = {"choice": None}
         selected_indices = set()
+        frames = {}
 
         def toggle_select(i, var):
+            # track selected indices and update border color for feedback
             if var.get():
                 selected_indices.add(i)
+                frames[i].config(bd=4, relief="solid", background="#aaffaa")
             else:
                 selected_indices.discard(i)
+                frames[i].config(bd=2, relief="groove", background=root.cget("bg"))
 
         # GUI setup
         root = tk.Tk()
@@ -315,6 +319,7 @@ def review_visual_duplicates():
                 photo = ImageTk.PhotoImage(img_copy)
                 images.append(photo)
                 frame = tk.Frame(scroll_frame, bd=2, relief="groove")
+                frames[i] = frame
                 frame.grid(row=i//columns, column=i%columns, padx=10, pady=10)
                 tk.Label(frame,image=photo).pack()
                 tk.Label(frame,text=f"Index: {i}",font=("Arial",14,"bold")).pack()
@@ -328,8 +333,8 @@ def review_visual_duplicates():
                 chk = tk.Checkbutton(frame, text="Select", variable=var,
                                      command=lambda i=i, v=var: toggle_select(i, v))
                 chk.pack()
-            except:
-                print("Cannot open:", fpath)
+            except Exception as e:
+                print("Cannot open:", fpath, "error:", e)
 
         # Buttons
         bottom_frame = tk.Frame(root, bd=2, relief="raised")
@@ -378,31 +383,48 @@ def review_visual_duplicates():
         action = selected_action["choice"]
         if not action: continue
         action_type, value = action
+        print(f"Action: {action_type}, selected indices: {sorted(selected_indices)}")
         if action_type == "delete_all":
-            [send2trash(f) for f in files]
+            for f in files:
+                print("Deleting (all):", f)
+                send2trash(f)
         elif action_type == "skip":
-            [move_to_folder(f) for f in files]
+            for f in files:
+                print("Skipping (keeping in place):", f)
+                move_to_folder(f)  # move_to_folder will skip already-sorted
         elif action_type == "keep_best":
             keep_file = get_largest_file(files)
+            print("Keeping best (moving):", keep_file)
             move_to_folder(keep_file)
-            [send2trash(f) for f in files if f != keep_file]
+            for f in files:
+                if f != keep_file:
+                    print("Deleting:", f)
+                    send2trash(f)
         elif action_type == "keep_index":
             keep_file = files[value]
+            print("Keeping index", value, keep_file)
             move_to_folder(keep_file)
-            [send2trash(f) for i, f in enumerate(files) if i != value]
+            for i, f in enumerate(files):
+                if i != value:
+                    print("Deleting:", f)
+                    send2trash(f)
         elif action_type == "keep_selected":
             # move/keep the checked indices and trash the rest
             for i, f in enumerate(files):
                 if i in selected_indices:
+                    print("Keeping selected (moving):", f)
                     move_to_folder(f)
                 else:
+                    print("Deleting:", f)
                     send2trash(f)
         elif action_type == "delete_selected":
             # trash checked files and move the others
             for i, f in enumerate(files):
                 if i in selected_indices:
+                    print("Deleting selected:", f)
                     send2trash(f)
                 else:
+                    print("Keeping (moving):", f)
                     move_to_folder(f)
 
     print("Done reviewing.")
