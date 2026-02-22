@@ -295,7 +295,7 @@ def review_visual_duplicates():
                 selected_indices.discard(i)
                 frames[i].config(bd=2, relief="groove", background=root.cget("bg"))
 
-        # GUI setup
+        # GUI setupg
         root = tk.Tk()
         root.title(f"Group: {group_id}")
         root.state("zoomed")
@@ -326,7 +326,6 @@ def review_visual_duplicates():
                 tk.Label(frame,text=fpath,wraplength=500).pack()
                 date_obj, source = get_best_date(fpath)
                 tk.Label(frame,text=f"Date: {date_obj:%Y-%m-%d}" if date_obj else "Date: Unknown",fg="blue").pack()
-                tk.Label(frame,text=f"Source: {source}",fg="green").pack()
                 tk.Label(frame,text=f"Sharpness: {int(blur_score(fpath))}",fg="purple").pack()
                 # checkbox for multi-selection
                 var = tk.BooleanVar()
