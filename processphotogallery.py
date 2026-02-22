@@ -225,7 +225,21 @@ def clean_exact_duplicates():
 # ==================== REVIEW VISUAL DUPLICATES ======
 # =====================================================
 def move_to_folder(file_path, base_folder=OUTPUT_SORTED):
-    """Move file to folder based on best date"""
+    """Move file to folder based on best date.
+
+    If the file already resides inside the base folder we treat it as
+    "sorted" and do nothing. This prevents review operations from
+    repeatedly shuffling files that were previously moved by
+    ``sort_images_by_best_date``.
+    """
+    abs_path = os.path.abspath(file_path)
+    abs_base = os.path.abspath(base_folder)
+    # the trailing sep ensures we only match whole-folder prefixes
+    if abs_path.startswith(abs_base + os.sep) or abs_path == abs_base:
+        # already sorted
+        print(f"Skipping move; '{file_path}' is already inside '{base_folder}'")
+        return False
+
     date_obj, source = get_best_date(file_path)
     target_folder = os.path.join(base_folder, "Unknown" if not date_obj else f"{date_obj:%Y}/{date_obj:%m}")
     os.makedirs(target_folder, exist_ok=True)
@@ -247,7 +261,12 @@ def move_to_folder(file_path, base_folder=OUTPUT_SORTED):
         return False
 
 def review_visual_duplicates():
-    """GUI review for visual duplicates"""
+    """GUI review for visual duplicates.
+
+    The interface now supports multi-selection via checkboxes; you can keep or
+    delete multiple files at once using the new buttons (or keyboard shortcuts
+    'K' and 'X').
+    """
     if not os.path.exists(DUPLICATE_REPORT):
         print("Duplicate report not found. Run 'duplicate_detector' first.")
         return
@@ -261,8 +280,16 @@ def review_visual_duplicates():
 
     for idx, (group_id, group) in enumerate(grouped, start=1):
         files = [f for f in group["file_path"].tolist() if os.path.exists(f)]
-        if len(files) < 2: continue
+        if len(files) < 2:
+            continue
         selected_action = {"choice": None}
+        selected_indices = set()
+
+        def toggle_select(i, var):
+            if var.get():
+                selected_indices.add(i)
+            else:
+                selected_indices.discard(i)
 
         # GUI setup
         root = tk.Tk()
@@ -296,6 +323,11 @@ def review_visual_duplicates():
                 tk.Label(frame,text=f"Date: {date_obj:%Y-%m-%d}" if date_obj else "Date: Unknown",fg="blue").pack()
                 tk.Label(frame,text=f"Source: {source}",fg="green").pack()
                 tk.Label(frame,text=f"Sharpness: {int(blur_score(fpath))}",fg="purple").pack()
+                # checkbox for multi-selection
+                var = tk.BooleanVar()
+                chk = tk.Checkbutton(frame, text="Select", variable=var,
+                                     command=lambda i=i, v=var: toggle_select(i, v))
+                chk.pack()
             except:
                 print("Cannot open:", fpath)
 
@@ -312,14 +344,33 @@ def review_visual_duplicates():
         tk.Button(bottom_frame,text="Keep Best (B)",command=keep_best,width=12).pack(side="left",padx=10)
         tk.Button(bottom_frame,text="Skip (S)",command=skip,width=10).pack(side="left",padx=10)
         tk.Button(bottom_frame,text="Delete All (D)",command=delete_all,width=12,bg="red",fg="white").pack(side="left",padx=10)
+        # multi-selection actions
+        def keep_selected_action():
+            selected_action.update({"choice":("keep_selected",None)})
+            root.destroy()
+        def delete_selected_action():
+            selected_action.update({"choice":("delete_selected",None)})
+            root.destroy()
+        tk.Button(bottom_frame,text="Keep Selected (K)",command=keep_selected_action,width=15).pack(side="left",padx=10)
+        tk.Button(bottom_frame,text="Delete Selected (X)",command=delete_selected_action,width=15,bg="red",fg="white").pack(side="left",padx=10)
 
         # Keyboard shortcuts
         def handle_key(event):
             key = event.keysym.lower()
-            if key.isdigit(): idx = int(key); 0<=idx<len(files) and keep_index(idx)
-            elif key=="b": keep_best()
-            elif key=="s": skip()
-            elif key=="d": delete_all()
+            if key.isdigit():
+                idx = int(key)
+                if 0 <= idx < len(files):
+                    keep_index(idx)
+            elif key == "b":
+                keep_best()
+            elif key == "s":
+                skip()
+            elif key == "d":
+                delete_all()
+            elif key == "k":
+                keep_selected_action()
+            elif key == "x":
+                delete_selected_action()
         root.bind("<Key>", handle_key)
         root.focus_set()
         root.mainloop()
@@ -327,16 +378,32 @@ def review_visual_duplicates():
         action = selected_action["choice"]
         if not action: continue
         action_type, value = action
-        if action_type=="delete_all": [send2trash(f) for f in files]
-        elif action_type=="skip": [move_to_folder(f) for f in files]
-        elif action_type=="keep_best": 
+        if action_type == "delete_all":
+            [send2trash(f) for f in files]
+        elif action_type == "skip":
+            [move_to_folder(f) for f in files]
+        elif action_type == "keep_best":
             keep_file = get_largest_file(files)
             move_to_folder(keep_file)
-            [send2trash(f) for f in files if f!=keep_file]
-        elif action_type=="keep_index":
+            [send2trash(f) for f in files if f != keep_file]
+        elif action_type == "keep_index":
             keep_file = files[value]
             move_to_folder(keep_file)
-            [send2trash(f) for i,f in enumerate(files) if i!=value]
+            [send2trash(f) for i, f in enumerate(files) if i != value]
+        elif action_type == "keep_selected":
+            # move/keep the checked indices and trash the rest
+            for i, f in enumerate(files):
+                if i in selected_indices:
+                    move_to_folder(f)
+                else:
+                    send2trash(f)
+        elif action_type == "delete_selected":
+            # trash checked files and move the others
+            for i, f in enumerate(files):
+                if i in selected_indices:
+                    send2trash(f)
+                else:
+                    move_to_folder(f)
 
     print("Done reviewing.")
 
@@ -433,18 +500,22 @@ def sort_all_media(source_folder):
 def processphotogallery():
     """Interactive fallback menu"""
     print("\nSelect Mode:")
-    print("1 - duplicate_detector")
-    print("2 - clear_exact_duplicates")
-    print("3 - review_visual_duplicates")
-    print("4 - sort_images_by_best_date")
+    print("1 - sort_images_by_best_date")
+    print("2 - duplicate_detector")
+    print("3 - clear_exact_duplicates")
+    print("4 - review_visual_duplicates")
     choice=input("\nEnter choice number: ").strip()
-    if choice=="1": folder=get_valid_directory("Enter folder path: ",None,True); analyze(folder)
-    elif choice=="2": clean_exact_duplicates()
-    elif choice=="3": review_visual_duplicates()
-    elif choice=="4":
-        folder=get_valid_directory("Enter SOURCE folder path (Enter for current '.'): ",None,True)
+    if choice=="1":
+        folder=get_valid_directory("Enter SOURCE folder path (Enter for current '.'):",None,True)
         os.makedirs(OUTPUT_SORTED,exist_ok=True)
         sort_all_media(folder)
+    elif choice=="2":
+        folder=get_valid_directory("Enter folder path: ",None,True)
+        analyze(folder)
+    elif choice=="3":
+        clean_exact_duplicates()
+    elif choice=="4":
+        review_visual_duplicates()
     else: print("Invalid option selected.")
 
 # =====================================================
@@ -460,7 +531,7 @@ def processphotogallery_cli():
         "duplicate_detector",
         "clear_exact_duplicates",
         "review_visual_duplicates"
-    ],help="Operation mode")
+    ],help="Operation mode (order: sort, duplicate, clear, review)")
     parser.add_argument("--sourcepath","-s",type=str,default=None,help="Source folder")
     parser.add_argument("--output","-o",type=str,default=OUTPUT_SORTED,help="Output folder for sorted files")
     parser.add_argument("--dryrun",action="store_true",help="Enable dry run mode")
@@ -477,7 +548,12 @@ def processphotogallery_cli():
     mode = args.mode
     source_folder = args.sourcepath
 
-    if mode == "duplicate_detector":
+    if mode == "sort_images_by_best_date":
+        folder = get_valid_directory("Enter SOURCE folder path (Enter for current '.'): ", source_folder, True)
+        os.makedirs(OUTPUT_SORTED, exist_ok=True)
+        sort_all_media(folder)
+
+    elif mode == "duplicate_detector":
         folder = get_valid_directory("Enter folder path: ", source_folder, True)
         analyze(folder)
 
@@ -486,11 +562,6 @@ def processphotogallery_cli():
 
     elif mode == "review_visual_duplicates":
         review_visual_duplicates()
-
-    elif mode == "sort_images_by_best_date":
-        folder = get_valid_directory("Enter SOURCE folder path (Enter for current '.'): ", source_folder, True)
-        os.makedirs(OUTPUT_SORTED, exist_ok=True)
-        sort_all_media(folder)
 
     else:
         print("Invalid mode. Use --help.")
