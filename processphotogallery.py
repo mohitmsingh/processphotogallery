@@ -301,13 +301,26 @@ def review_visual_duplicates():
         root.state("zoomed")
         tk.Label(root, text=f"Group {idx} of {total_groups}", font=("Arial",16,"bold"), bg="#dddddd").pack(fill="x")
         canvas = tk.Canvas(root)
-        scrollbar = tk.Scrollbar(root, orient="vertical", command=canvas.yview)
+        # vertical scrollbar
+        vscroll = tk.Scrollbar(root, orient="vertical", command=canvas.yview)
+        # horizontal scrollbar
+        hscroll = tk.Scrollbar(root, orient="horizontal", command=canvas.xview)
         scroll_frame = tk.Frame(canvas)
         scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.create_window((0,0), window=scroll_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.configure(yscrollcommand=vscroll.set, xscrollcommand=hscroll.set)
         canvas.pack(side="top", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        vscroll.pack(side="right", fill="y")
+        hscroll.pack(side="bottom", fill="x")
+
+        # bind mouse wheel for convenience
+        def _on_mousewheel(event):
+            # Windows delta is event.delta; divide to slow scroll
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        # Mac and Linux handle differently
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        canvas.bind_all("<Button-4>", lambda e: canvas.yview_scroll(-1, "units"))
+        canvas.bind_all("<Button-5>", lambda e: canvas.yview_scroll(1, "units"))
 
         images = []
         columns = 3
